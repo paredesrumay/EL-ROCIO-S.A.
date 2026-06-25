@@ -1,0 +1,640 @@
+// almacen.js — Módulo de gestión de almacén
+// Depende de js/config.js (API_URL)
+
+const almacen = {
+  vistaActual: 'menu',
+  granjaActiva: null,
+  inventario: [],
+  movimientos: [],
+  granjas: [],
+
+  init() {
+    const sesion = JSON.parse(localStorage.getItem("sesion"));
+    if (!sesion) { window.location.href = "index.html"; return; }
+
+    // ✅ CORREGIDO: sesion.granjas puede ser string o array; normalizar antes de comparar
+    const granjasSesion = Array.isArray(sesion.granjas)
+      ? sesion.granjas.join(",")
+      : String(sesion.granjas || "");
+
+    if (sesion.rol === "OFICINISTA" && granjasSesion.toUpperCase() !== "MALVINAS 3") {
+      alert("El almacén solo está disponible para la granja Malvinas 3");
+      window.location.href = "menu-granja.html";
+      return;
+    }
+
+    this.granjaActiva = localStorage.getItem("granjaActiva") || "Malvinas 3";
+    if (this.granjaActiva.toUpperCase() !== "MALVINAS 3") {
+      alert("El almacén solo está disponible para la granja Malvinas 3");
+      window.location.href = "menu-granja.html";
+      return;
+    }
+
+    this.setupEventos();
+    this.cargarGranjas();
+    this.cargarInventario();
+  },
+
+  setupEventos() {
+    document.getElementById("btnToggle").onclick = () => {
+      document.getElementById("sidebar").classList.toggle("sidebar-cerrada");
+    };
+
+    document.getElementById("btnCerrar").onclick = () => {
+      localStorage.clear();
+      window.location.href = "index.html";
+    };
+
+    document.getElementById("btnRegresar").onclick = () => {
+      window.location.href = "menu-granja.html";
+    };
+
+    document.getElementById("btnMenuInventario").onclick = () => this.mostrarInventario();
+    document.getElementById("btnMenuEntrada").onclick    = () => this.mostrarFormularioEntrada();
+    document.getElementById("btnMenuSalida").onclick     = () => this.mostrarFormularioSalida();
+    document.getElementById("btnMenuHistorial").onclick  = () => this.mostrarHistorial();
+
+    document.getElementById("nombreGranja").textContent  = this.granjaActiva;
+    document.getElementById("nombreGranja").style.display = "block";
+    document.getElementById("menuSistema").style.display  = "flex";
+    document.getElementById("btnRegresar").style.display  = "block";
+  },
+
+  cargarGranjas() {
+    fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify({ accion: "obtener_granjas" })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) this.granjas = data.granjas || [];
+    })
+    .catch(() => console.error("Error al cargar granjas"));
+  },
+
+  cargarInventario() {
+    fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        accion: "obtener_inventario",
+        granja: this.granjaActiva
+      })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        this.inventario  = data.productos   || [];
+        this.movimientos = data.movimientos || [];
+        this.mostrarInventario();
+      } else {
+        this.mostrarError("Error al cargar inventario: " + (data.mensaje || ""));
+      }
+    })
+    .catch(() => this.mostrarError("Error de conexión al cargar inventario."));
+  },
+
+  // ─────────────────────────────────────────────
+  //  INVENTARIO
+  // ─────────────────────────────────────────────
+  mostrarInventario() {
+    this.vistaActual = 'inventario';
+    const vista = document.getElementById("vistaAlmacen");
+
+    if (this.inventario.length === 0) {
+      vista.innerHTML = `
+        <div class="almacen-container">
+          <div class="almacen-header"><h2>Inventario</h2></div>
+          <div class="empty-state">
+            <p>No hay productos en el inventario.</p>
+            <p style="font-size:12px;color:#ccc;margin-top:10px;">Registre una entrada de productos para comenzar.</p>
+          </div>
+        </div>`;
+      return;
+    }
+
+    let tablaHTML = `
+      <div class="almacen-container">
+        <div class="almacen-header">
+          <h2>📦 Inventario</h2>
+          <button class="btn-back-mini" onclick="almacen.mostrarMenu()">← Menú</button>
+        </div>
+        <div class="search-container">
+          <input type="text" id="buscarProducto" placeholder="Buscar por nombre o código SAP..." />
+          <button onclick="almacen.buscarProducto()">Buscar</button>
+        </div>
+        <table class="inventario-table">
+          <thead>
+            <tr>
+              <th>Código SAP</th>
+              <th>Producto</th>
+              <th>Lote</th>
+              <th>Cantidad</th>
+              <th>Unidad</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+    this.inventario.forEach(prod => {
+      const estado      = prod.cantidad === 0 ? 'critico' : prod.cantidad < 10 ? 'bajo' : '';
+      const estadoTexto = prod.cantidad === 0 ? '⚠️ SIN STOCK' : prod.cantidad < 10 ? '⚠️ BAJO' : '✓ BIEN';
+
+      tablaHTML += `
+        <tr>
+          <td><code style="font-size:12px;">${prod.id || '-'}</code></td>
+          <td><strong>${prod.nombre}</strong></td>
+          <td>${prod.lote || '-'}</td>
+          <td><span class="badge-cantidad ${estado || ''}">${prod.cantidad}</span></td>
+          <td>${prod.unidad || 'Unidad'}</td>
+          <td><span class="estado-${estado || 'bien'}">${estadoTexto}</span></td>
+        </tr>`;
+    });
+
+    tablaHTML += `</tbody></table></div>`;
+    vista.innerHTML = tablaHTML;
+
+    document.getElementById("buscarProducto").addEventListener("keyup", () => this.buscarProducto());
+  },
+
+  buscarProducto() {
+    const termino = document.getElementById("buscarProducto").value.toLowerCase();
+    const filas   = document.querySelectorAll(".inventario-table tbody tr");
+
+    // ✅ CORREGIDO: busca tanto en nombre (col 2) como en código SAP (col 1)
+    filas.forEach(fila => {
+      const celdas  = fila.querySelectorAll("td");
+      const sap     = (celdas[0] ? celdas[0].textContent : "").toLowerCase();
+      const nombre  = (celdas[1] ? celdas[1].textContent : "").toLowerCase();
+      fila.style.display = (nombre.includes(termino) || sap.includes(termino)) ? "" : "none";
+    });
+  },
+
+  // ─────────────────────────────────────────────
+  //  FORMULARIO ENTRADA
+  // ─────────────────────────────────────────────
+  mostrarFormularioEntrada() {
+    this.vistaActual = 'entrada';
+    const vista = document.getElementById("vistaAlmacen");
+
+    let opcionesGranjas = '<option value="">-- Seleccionar origen --</option>';
+    this.granjas.forEach(g => {
+      opcionesGranjas += `<option value="${g}">${g}</option>`;
+    });
+    opcionesGranjas += `<option value="EL PALMO">EL PALMO</option>`;
+
+    vista.innerHTML = `
+      <div class="almacen-container">
+        <div class="almacen-header">
+          <h2>📥 Entrada de Productos</h2>
+          <button class="btn-back-mini" onclick="almacen.mostrarInventario()">← Inventario</button>
+        </div>
+        <form class="almacen-form" id="formEntrada">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="codigoSAPEntrada">Código SAP</label>
+              <input type="text" id="codigoSAPEntrada" placeholder="Ingresa código SAP existente..." />
+              <button type="button" class="btn-action" style="width:100%;margin-top:5px;padding:8px;"
+                onclick="almacen.buscarProductoSAP()">Buscar por SAP</button>
+            </div>
+          </div>
+
+          <div style="background:#f0f4f8;padding:10px;border-radius:8px;margin-bottom:15px;text-align:center;color:#666;font-size:14px;">
+            — O completa los datos manualmente —
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="productoEntrada">Descripción del Material *</label>
+              <input type="text" id="productoEntrada" placeholder="Nombre del producto" required />
+            </div>
+            <div class="form-group">
+              <label for="loteEntrada">Lote</label>
+              <input type="text" id="loteEntrada" placeholder="Lote (opcional)" />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="cantidadEntrada">Cantidad *</label>
+              <input type="number" id="cantidadEntrada" placeholder="Cantidad" min="1" required />
+            </div>
+            <div class="form-group">
+              <label for="unidadEntrada">Unidad de medida *</label>
+              <select id="unidadEntrada" required>
+                <option value="">-- Seleccionar --</option>
+                <option value="Unidad">Unidad</option>
+                <option value="Kilogramo">Kilogramo (kg)</option>
+                <option value="Litro">Litro (L)</option>
+                <option value="Bolsa">Bolsa</option>
+                <option value="Caja">Caja</option>
+                <option value="Docena">Docena</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="origenEntrada">Origen *</label>
+              <select id="origenEntrada" required>
+                ${opcionesGranjas}
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row full">
+            <div class="form-group">
+              <label for="observacionesEntrada">Observaciones</label>
+              <textarea id="observacionesEntrada" placeholder="Notas adicionales..." rows="2"></textarea>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;">
+            <button type="submit" class="btn-action">✓ Registrar Entrada</button>
+            <button type="button" class="btn-action btn-secondary" onclick="almacen.mostrarInventario()">Cancelar</button>
+          </div>
+          <p id="msgEntrada" style="color:red;margin-top:10px;"></p>
+        </form>
+      </div>`;
+
+    document.getElementById("formEntrada").onsubmit = (e) => {
+      e.preventDefault();
+      this.guardarEntrada();
+    };
+  },
+
+  buscarProductoSAP() {
+    const codigo = document.getElementById("codigoSAPEntrada").value.trim();
+    const msgEl  = document.getElementById("msgEntrada");
+
+    if (!codigo) {
+      msgEl.textContent = "Ingresa un código SAP";
+      msgEl.style.color = "#f44336";
+      return;
+    }
+
+    msgEl.textContent = "🔄 Buscando...";
+    msgEl.style.color = "#1e5fa8";
+
+    const producto = this.inventario.find(p =>
+      String(p.id || "").trim().toUpperCase() === codigo.toUpperCase()
+    );
+
+    if (producto) {
+      document.getElementById("productoEntrada").value = producto.nombre;
+      document.getElementById("loteEntrada").value     = producto.lote || "";
+      document.getElementById("unidadEntrada").value   = producto.unidad || "Unidad";
+      msgEl.textContent = "✅ Producto encontrado";
+      msgEl.style.color = "#4caf50";
+      setTimeout(() => { msgEl.textContent = ""; }, 2000);
+    } else {
+      msgEl.textContent = "❌ Código SAP no encontrado. Complete los datos manualmente.";
+      msgEl.style.color = "#f44336";
+      document.getElementById("productoEntrada").value = "";
+      document.getElementById("loteEntrada").value     = "";
+      document.getElementById("unidadEntrada").value   = "";
+    }
+  },
+
+  guardarEntrada() {
+    const producto      = document.getElementById("productoEntrada").value.trim();
+    const lote          = document.getElementById("loteEntrada").value.trim();
+    const cantidad      = parseInt(document.getElementById("cantidadEntrada").value, 10);
+    const unidad        = document.getElementById("unidadEntrada").value;
+    const origen        = document.getElementById("origenEntrada").value;
+    const observaciones = document.getElementById("observacionesEntrada").value.trim();
+    // ✅ CORREGIDO: incluir codigo_sap en el payload
+    const codigoSAP     = document.getElementById("codigoSAPEntrada").value.trim();
+
+    const msgEl = document.getElementById("msgEntrada");
+
+    if (!producto) {
+      msgEl.textContent = "Ingresa la descripción del material.";
+      return;
+    }
+    if (!cantidad || cantidad <= 0) {
+      msgEl.textContent = "Ingresa una cantidad válida.";
+      return;
+    }
+    if (!unidad) {
+      msgEl.textContent = "Selecciona una unidad de medida.";
+      return;
+    }
+    if (!origen) {
+      msgEl.textContent = "Selecciona un origen.";
+      return;
+    }
+
+    fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        accion:       "registrar_entrada_almacen",
+        granja:       this.granjaActiva,
+        codigo_sap:   codigoSAP,      // ✅ CORREGIDO: enviado al backend
+        producto,
+        lote,
+        cantidad,
+        unidad,
+        origen,
+        observaciones
+      })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        Swal.fire({
+          icon: 'success',
+          title: '¡Entrada registrada!',
+          text: `Se agregaron ${cantidad} ${unidad}(s) de ${producto}`,
+          timer: 2000,
+          showConfirmButton: false
+        }).then(() => this.cargarInventario());
+      } else {
+        msgEl.textContent = "Error: " + (data.mensaje || "");
+      }
+    })
+    .catch(() => { msgEl.textContent = "Error de conexión."; });
+  },
+
+  // ─────────────────────────────────────────────
+  //  FORMULARIO SALIDA
+  // ─────────────────────────────────────────────
+  mostrarFormularioSalida() {
+    this.vistaActual = 'salida';
+    const vista = document.getElementById("vistaAlmacen");
+    const self  = this;
+
+    let opcionesGranjas = '<option value="">-- Seleccionar destino (opcional) --</option>';
+    this.granjas.forEach(g => {
+      opcionesGranjas += `<option value="${g}">${g}</option>`;
+    });
+
+    vista.innerHTML = `
+      <div class="almacen-container">
+        <div class="almacen-header">
+          <h2>📤 Salida de Productos</h2>
+          <button class="btn-back-mini" onclick="almacen.mostrarInventario()">← Inventario</button>
+        </div>
+
+        <form class="almacen-form" id="formSalida">
+          <div class="form-row full">
+            <div class="form-group">
+              <label for="buscarProductoSalida">Buscar Producto *</label>
+              <input type="text" id="buscarProductoSalida" placeholder="Escribe el nombre del material..." autocomplete="off" />
+              <div id="resultadosBusqueda" style="position:relative;margin-top:-10px;z-index:100;"></div>
+            </div>
+          </div>
+
+          <input type="hidden" id="productoSalidaID" value="" />
+
+          <div style="background:#f0f4f8;padding:12px;border-radius:8px;margin-bottom:15px;display:none;" id="detalleProducto">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:13px;">
+              <div><strong>Código SAP:</strong> <span id="detalleCodigo">-</span></div>
+              <div><strong>Lote:</strong> <span id="detalleLote">-</span></div>
+              <div><strong>Unidad:</strong> <span id="detalleUnidad">-</span></div>
+            </div>
+            <div style="margin-top:8px;font-size:13px;">
+              <strong>Disponible:</strong>
+              <span id="detalleDisponible" style="color:#4caf50;font-weight:bold;">-</span>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="cantidadSalida">Cantidad *</label>
+              <input type="number" id="cantidadSalida" placeholder="Cantidad" min="1" required />
+            </div>
+            <div class="form-group">
+              <label for="motivoSalida">Motivo de salida *</label>
+              <select id="motivoSalida" required>
+                <option value="">-- Seleccionar --</option>
+                <option value="Consumo">Consumo en galpones</option>
+                <option value="Venta">Venta</option>
+                <option value="Devolución">Devolución</option>
+                <option value="Pérdida">Pérdida/Daño</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="destinoSalida">Destino (Granja) <small>(opcional)</small></label>
+              <select id="destinoSalida">${opcionesGranjas}</select>
+            </div>
+            <div class="form-group">
+              <label for="numeroGuia">N° de GUÍA <small>(opcional)</small></label>
+              <input type="text" id="numeroGuia" placeholder="Número de guía de remisión" />
+            </div>
+          </div>
+
+          <div class="form-row full">
+            <div class="form-group">
+              <label for="observacionesSalida">Observaciones</label>
+              <textarea id="observacionesSalida" placeholder="Notas adicionales..." rows="2"></textarea>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;">
+            <button type="submit" class="btn-action">✓ Registrar Salida</button>
+            <button type="button" class="btn-action btn-secondary" onclick="almacen.mostrarInventario()">Cancelar</button>
+          </div>
+          <p id="msgSalida" style="color:red;margin-top:10px;"></p>
+        </form>
+      </div>`;
+
+    // Buscador dinámico
+    const inputBusqueda = document.getElementById("buscarProductoSalida");
+    const resultados    = document.getElementById("resultadosBusqueda");
+
+    inputBusqueda.addEventListener("keyup", () => {
+      const termino = inputBusqueda.value.toLowerCase().trim();
+      resultados.innerHTML = "";
+      if (!termino) return;
+
+      const coincidencias = self.inventario.filter(p =>
+        (p.nombre && p.nombre.toLowerCase().includes(termino)) ||
+        (p.id     && p.id.toLowerCase().includes(termino))
+      );
+
+      if (coincidencias.length === 0) {
+        resultados.innerHTML = '<div style="padding:10px;color:#999;background:#f5f5f5;border-radius:4px;">No se encontraron productos</div>';
+        return;
+      }
+
+      let html = '<div style="background:white;border:1px solid #ddd;border-radius:4px;max-height:300px;overflow-y:auto;box-shadow:0 4px 8px rgba(0,0,0,0.1);">';
+      coincidencias.slice(0, 10).forEach(prod => {
+        html += `
+          <div class="producto-opcion"
+               data-id="${prod.id}" data-nombre="${prod.nombre}"
+               data-cantidad="${prod.cantidad}" data-unidad="${prod.unidad}"
+               data-lote="${prod.lote || ''}"
+               style="padding:10px;border-bottom:1px solid #eee;cursor:pointer;">
+            <div style="font-weight:bold;color:#1e5fa8;">${prod.nombre}</div>
+            <div style="font-size:12px;color:#666;">SAP: ${prod.id || '-'} | Disponible: ${prod.cantidad} ${prod.unidad}</div>
+          </div>`;
+      });
+      html += '</div>';
+      resultados.innerHTML = html;
+
+      document.querySelectorAll(".producto-opcion").forEach(opcion => {
+        opcion.addEventListener("click", () => {
+          self.seleccionarProductoSalida(
+            opcion.getAttribute("data-id"),
+            opcion.getAttribute("data-nombre"),
+            opcion.getAttribute("data-cantidad"),
+            opcion.getAttribute("data-unidad"),
+            opcion.getAttribute("data-lote")
+          );
+        });
+      });
+    });
+
+    document.getElementById("formSalida").onsubmit = (e) => {
+      e.preventDefault();
+      this.guardarSalida();
+    };
+  },
+
+  seleccionarProductoSalida(id, nombre, cantidad, unidad, lote) {
+    document.getElementById("buscarProductoSalida").value = nombre;
+    document.getElementById("productoSalidaID").value     = id;
+    document.getElementById("resultadosBusqueda").innerHTML = "";
+
+    const detalleDiv = document.getElementById("detalleProducto");
+    detalleDiv.style.display = "block";
+    document.getElementById("detalleCodigo").textContent    = id    || "-";
+    document.getElementById("detalleLote").textContent      = lote  || "-";
+    document.getElementById("detalleUnidad").textContent    = unidad;
+    document.getElementById("detalleDisponible").textContent = cantidad;
+  },
+
+  guardarSalida() {
+    const productoId    = document.getElementById("productoSalidaID").value;
+    const cantidad      = parseInt(document.getElementById("cantidadSalida").value, 10);
+    const motivo        = document.getElementById("motivoSalida").value;
+    const destino       = document.getElementById("destinoSalida").value;
+    const numeroGuia    = document.getElementById("numeroGuia").value.trim();
+    const observaciones = document.getElementById("observacionesSalida").value.trim();
+    const msgEl         = document.getElementById("msgSalida");
+
+    if (!productoId) { msgEl.textContent = "Selecciona un producto."; return; }
+    if (!cantidad || cantidad <= 0) { msgEl.textContent = "Ingresa una cantidad válida."; return; }
+    if (!motivo) { msgEl.textContent = "Selecciona un motivo de salida."; return; }
+
+    const producto = this.inventario.find(p => p.id === productoId);
+    if (!producto) { msgEl.textContent = "Producto no encontrado."; return; }
+    if (cantidad > producto.cantidad) {
+      msgEl.textContent = `No hay suficiente cantidad disponible. (Disponible: ${producto.cantidad})`;
+      return;
+    }
+
+    fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        accion:        "registrar_salida_almacen",
+        granja:        this.granjaActiva,
+        producto_id:   productoId,
+        producto:      producto.nombre,
+        cantidad,
+        motivo,
+        destino,
+        numero_guia:   numeroGuia,
+        observaciones
+      })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        Swal.fire({
+          icon: 'success',
+          title: '¡Salida registrada!',
+          text: `Se extrajeron ${cantidad} ${producto.unidad}(s) de ${producto.nombre}`,
+          timer: 2000,
+          showConfirmButton: false
+        }).then(() => this.cargarInventario());
+      } else {
+        msgEl.textContent = "Error: " + (data.mensaje || "");
+      }
+    })
+    .catch(() => { msgEl.textContent = "Error de conexión."; });
+  },
+
+  // ─────────────────────────────────────────────
+  //  HISTORIAL
+  // ─────────────────────────────────────────────
+  mostrarHistorial() {
+    this.vistaActual = 'historial';
+    const vista = document.getElementById("vistaAlmacen");
+
+    if (this.movimientos.length === 0) {
+      vista.innerHTML = `
+        <div class="almacen-container">
+          <div class="almacen-header">
+            <h2>📋 Historial de Movimientos</h2>
+            <button class="btn-back-mini" onclick="almacen.mostrarInventario()">← Inventario</button>
+          </div>
+          <div class="empty-state"><p>No hay movimientos registrados.</p></div>
+        </div>`;
+      return;
+    }
+
+    let historialHTML = `
+      <div class="almacen-container">
+        <div class="almacen-header">
+          <h2>📋 Historial de Movimientos</h2>
+          <button class="btn-back-mini" onclick="almacen.mostrarInventario()">← Inventario</button>
+        </div>
+        <div class="movimientos-list">`;
+
+    this.movimientos.forEach(mov => {
+      const fecha      = new Date(mov.fecha).toLocaleString();
+      const tipo       = mov.tipo === 'entrada' ? 'Entrada' : 'Salida';
+      const badgeClass = mov.tipo === 'entrada' ? 'entrada' : 'salida';
+      const icono      = mov.tipo === 'entrada' ? '📥' : '📤';
+      // ✅ CORREGIDO: mostrar unidad real del movimiento
+      const unidadMov  = mov.unidad || 'unidades';
+
+      historialHTML += `
+        <div class="movimiento-item ${mov.tipo}">
+          <div class="movimiento-info">
+            <span class="movimiento-badge ${badgeClass}">${icono} ${tipo}</span>
+            <strong>${mov.producto}</strong> — ${mov.cantidad} ${unidadMov}
+            ${mov.motivo ? `<span style="color:#666;">(${mov.motivo})</span>` : ''}
+            ${mov.destino ? `<span style="color:#888;font-size:12px;"> → ${mov.destino}</span>` : ''}
+            <div class="movimiento-fecha">${fecha}</div>
+            ${mov.numero_guia   ? `<div style="color:#555;font-size:12px;margin-top:3px;">Guía: ${mov.numero_guia}</div>` : ''}
+            ${mov.observaciones ? `<div style="color:#666;font-size:12px;margin-top:3px;">${mov.observaciones}</div>` : ''}
+          </div>
+        </div>`;
+    });
+
+    historialHTML += `</div></div>`;
+    vista.innerHTML = historialHTML;
+  },
+
+  // ─────────────────────────────────────────────
+  //  MENÚ PRINCIPAL
+  // ─────────────────────────────────────────────
+  mostrarMenu() {
+    const vista = document.getElementById("vistaAlmacen");
+    vista.innerHTML = `
+      <div class="almacen-container">
+        <h2>🏪 Almacén — ${this.granjaActiva}</h2>
+        <p style="color:#666;margin-top:10px;">Seleccione una opción del menú lateral para gestionar el almacén.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:30px;">
+          <button class="btn-action" onclick="almacen.mostrarInventario()"       style="height:60px;font-size:16px;">📦 Ver Inventario</button>
+          <button class="btn-action" onclick="almacen.mostrarFormularioEntrada()" style="height:60px;font-size:16px;">📥 Entrada</button>
+          <button class="btn-action" onclick="almacen.mostrarFormularioSalida()"  style="height:60px;font-size:16px;">📤 Salida</button>
+          <button class="btn-action" onclick="almacen.mostrarHistorial()"         style="height:60px;font-size:16px;">📋 Historial</button>
+        </div>
+      </div>`;
+  },
+
+  mostrarError(mensaje) {
+    document.getElementById("vistaAlmacen").innerHTML =
+      `<p style="color:red;text-align:center;padding:20px;">${mensaje}</p>`;
+  }
+};
+
+document.addEventListener("DOMContentLoaded", () => almacen.init());

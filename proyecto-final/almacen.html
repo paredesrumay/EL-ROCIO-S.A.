@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Almacén | EL ROCIO S.A.</title>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <link rel="stylesheet" href="css/menu.css">
+  <link rel="stylesheet" href="css/almacen.css">
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+
+    <div class="sidebar-top">
+      <button id="btnToggle" class="btn-toggle" aria-label="Abrir menú">☰</button>
+      <div id="nombreGranja" class="granja-nombre" style="display:none;"></div>
+    </div>
+
+    <nav class="sidebar-menu" id="menuSistema" style="display:none;">
+      <button id="btnMenuInventario" class="menu-item">📦 Ver Inventario</button>
+      <button id="btnMenuEntrada" class="menu-item">📥 Entrada de Productos</button>
+      <button id="btnMenuSalida" class="menu-item">📤 Salida de Productos</button>
+      <button id="btnMenuConsumo" class="menu-item">🍴 Consumo</button>
+      <button id="btnMenuHistorial" class="menu-item">📋 Historial</button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button id="btnRegresar" class="btn-back" style="display:none;">
+        ← Regresar
+      </button>
+      <button id="btnCerrar" class="btn-logout">
+        Cerrar sesión
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- CONTENIDO -->
+  <main class="content" id="contenidoPrincipal">
+    <div id="vistaAlmacen" style="width: 100%;"></div>
+  </main>
+
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/almacen.js"></script>
+</body>
+</html>

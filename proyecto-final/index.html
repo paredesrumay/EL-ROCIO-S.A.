@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login | EL ROCIO S.A.</title>
+  <link rel="stylesheet" href="css/login.css">
+</head>
+<body>
+
+<div class="background">
+  <div class="container">
+
+    <div class="welcome-top">
+      <h1>BIENVENIDO.</h1>
+      <p>EL ROCIO S.A.</p>
+    </div>
+
+    <form id="formLogin" class="login-card">
+      <div class="avatar">👤</div>
+      <h2>Iniciar sesión</h2>
+
+      <input id="usuario" name="usuario" placeholder="Usuario" autocomplete="username" required>
+      <input id="password" name="password" type="password" placeholder="Contraseña" autocomplete="current-password" required>
+
+      <button id="btnLogin" type="submit">
+        <span id="btnText">INGRESO</span>
+        <span id="loader" class="spinner hidden"></span>
+      </button>
+
+      <p id="msg"></p>
+    </form>
+
+  </div>
+</div>
+
+<!-- config.js PRIMERO para que API_URL esté disponible -->
+<script src="js/config.js"></script>
+<script src="js/login.js"></script>
+</body>
+</html>

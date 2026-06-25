@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seleccionar Granja | EL ROCIO S.A.</title>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <link rel="stylesheet" href="css/menu.css">
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+
+    <div class="sidebar-top">
+      <button id="btnToggle" class="btn-toggle" aria-label="Abrir menú">☰</button>
+      <div id="nombreGranja" class="granja-nombre" style="display:none;"></div>
+    </div>
+
+    <nav class="sidebar-menu" id="menuSistema" style="display:none;">
+      <button id="btnMenuIngreso" class="menu-item">Ingreso Pollitas</button>
+      <button id="btnMenuPesos"   class="menu-item">Pesos Corporales</button>
+      <button id="btnMenuMortalidad" class="menu-item">Mortalidad y Selección</button>
+      <button id="btnMenuConsumoDirecto" class="menu-item">🍴 Consumo (Almacén)</button>
+      <button id="btnMenuAlmacen" class="menu-item">🏪 Almacén</button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button id="btnRegresar" class="btn-back" style="display:none;">
+        ← Regresar a granjas
+      </button>
+      <button id="btnCerrar" class="btn-logout">
+        Cerrar sesión
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- CONTENIDO -->
+  <main class="content" id="contenidoPrincipal">
+
+    <div class="vista-container" id="vistaGranjas">
+      <h1>Seleccione la Granja</h1>
+      <p class="subtitle" id="rolAcceso"></p>
+      <div id="loading" class="loading">Cargando granjas...</div>
+      <div id="gridGranjas"></div>
+    </div>
+
+    <div class="vista-container" id="vistaModulo" style="display:none;">
+      <!-- El contenido se inyecta desde menu-granja.js -->
+    </div>
+
+  </main>
+
+  </div>
+
+<!-- config.js PRIMERO para que API_URL esté disponible -->
+<script src="js/config.js"></script>
+<script src="js/menu-granja.js"></script>
+</body>
+</html>
